@@ -245,6 +245,111 @@ class TaskTest extends TestCase
         }
     }
 
+    #[TestWith(['release', ['Prepare Release', 'Write notes']])]
+    #[TestWith(['0', ['Version 0']])]
+    #[TestWith(['missing', []])]
+    #[TestWith(["' OR 1=1 --", []])]
+    public function test_search_matches_title_or_description_without_changing_statistics(string $search, array $titles): void
+    {
+        Task::factory()->create(['title' => 'Prepare Release', 'description' => null]);
+        Task::factory()->completed()->create(['title' => 'Write notes', 'description' => 'Document the RELEASE changes']);
+        Task::factory()->create(['title' => 'Version 0', 'description' => null]);
+
+        $response = $this->get(route('dashboard', compact('search')))->assertOk()
+            ->assertViewHas('stats', ['total' => 3, 'completed' => 1, 'pending' => 2, 'percentage' => 33]);
+
+        $this->assertSame($titles, $response['tasks']->pluck('title')->sort()->values()->all());
+    }
+
+    #[TestWith([''])]
+    #[TestWith(['   '])]
+    public function test_blank_search_returns_all_tasks(string $search): void
+    {
+        Task::factory()->count(2)->create();
+
+        $response = $this->get(route('tasks.index', compact('search')))->assertOk();
+
+        $this->assertSame(2, $response['tasks']->total());
+    }
+
+    #[TestWith(['newest', ['Zebra', 'beta', 'Alpha']])]
+    #[TestWith(['oldest', ['Alpha', 'beta', 'Zebra']])]
+    #[TestWith(['priority', ['beta', 'Alpha', 'Zebra']])]
+    #[TestWith(['alphabetical', ['Alpha', 'beta', 'Zebra']])]
+    public function test_sort_options_return_tasks_in_the_selected_order(string $sort, array $titles): void
+    {
+        Task::factory()->create(['title' => 'Zebra', 'priority' => 'low', 'created_at' => '2026-01-03 12:00:00']);
+        Task::factory()->create(['title' => 'Alpha', 'priority' => 'medium', 'created_at' => '2026-01-01 12:00:00']);
+        Task::factory()->create(['title' => 'beta', 'priority' => 'high', 'created_at' => '2026-01-02 12:00:00']);
+
+        $response = $this->get(route('tasks.index', compact('sort')))->assertOk();
+
+        $this->assertSame($titles, $response['tasks']->pluck('title')->all());
+    }
+
+    #[TestWith(['newest', ['Zebra release', 'Alpha release']])]
+    #[TestWith(['oldest', ['Alpha release', 'Zebra release']])]
+    #[TestWith(['priority', ['Zebra release', 'Alpha release']])]
+    #[TestWith(['alphabetical', ['Alpha release', 'Zebra release']])]
+    public function test_search_and_sort_respect_both_status_and_priority_filters(string $sort, array $titles): void
+    {
+        Task::factory()->create(['title' => 'Alpha release', 'priority' => 'high', 'created_at' => '2026-01-01 12:00:00']);
+        Task::factory()->create(['title' => 'Zebra release', 'priority' => 'high', 'created_at' => '2026-01-02 12:00:00']);
+        Task::factory()->completed()->create(['title' => 'Completed release', 'description' => 'release', 'priority' => 'high']);
+        Task::factory()->create(['title' => 'Low release', 'description' => 'release', 'priority' => 'low']);
+        Task::factory()->create(['title' => 'Unrelated', 'description' => null, 'priority' => 'high']);
+
+        $response = $this->get(route('tasks.index', [
+            'search' => 'release', 'status' => 'pending', 'priority' => 'high', 'sort' => $sort,
+        ]))->assertOk();
+
+        $this->assertSame($titles, $response['tasks']->pluck('title')->all());
+    }
+
+    public function test_sort_form_and_pagination_preserve_search_and_selected_filters(): void
+    {
+        Task::factory()->completed()->count(13)->create(['title' => 'Release task', 'priority' => 'high']);
+        $filters = ['search' => 'Release', 'status' => 'completed', 'priority' => 'high', 'sort' => 'oldest'];
+
+        $response = $this->get(route('tasks.index', $filters))->assertOk()
+            ->assertSee('name="search" value="Release"', false)
+            ->assertSee('value="completed" selected', false)
+            ->assertSee('value="high" selected', false)
+            ->assertSee('value="oldest" selected', false);
+
+        $this->assertSame(13, $response['tasks']->total());
+        $this->assertSame(12, $response['tasks']->count());
+        parse_str(parse_url($response['tasks']->nextPageUrl(), PHP_URL_QUERY), $nextPageFilters);
+        $this->assertSame([...$filters, 'page' => '2'], $nextPageFilters);
+
+        $nextPage = $this->get($response['tasks']->nextPageUrl())->assertOk();
+
+        $this->assertSame(1, $nextPage['tasks']->count());
+        $this->assertSame(13, $nextPage['tasks']->first()->id);
+    }
+
+    #[TestWith(['search', ['release'], 'The search field must be a string.'])]
+    #[TestWith(['sort', ['oldest'], 'The sort field must be a string.'])]
+    #[TestWith(['sort', 'title desc', 'The selected sort is invalid.'])]
+    public function test_invalid_search_and_sort_values_are_rejected(string $field, mixed $value, string $message): void
+    {
+        $this->get(route('tasks.index', [$field => $value]))->assertSessionHasErrors([$field => $message]);
+    }
+
+    public function test_search_length_is_limited(): void
+    {
+        $this->get(route('tasks.index', ['search' => str_repeat('a', 256)]))
+            ->assertSessionHasErrors(['search' => 'The search field must not be greater than 255 characters.']);
+    }
+
+    public function test_search_input_is_escaped_in_the_dashboard_form(): void
+    {
+        $search = '\"><script>alert(1)</script>';
+
+        $this->get(route('tasks.index', compact('search')))->assertOk()
+            ->assertSee($search)->assertDontSee($search, false);
+    }
+
     public function test_unknown_tasks_return_not_found_for_all_record_operations(): void
     {
         $this->get(route('tasks.show', 999))->assertNotFound();

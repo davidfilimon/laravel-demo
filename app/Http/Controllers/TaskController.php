@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\SaveTaskRequest;
 use App\Models\Task;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -13,16 +14,41 @@ class TaskController extends Controller
 {
     public function index(Request $request): View
     {
+        $sortOptions = [
+            'newest' => 'Newest first',
+            'oldest' => 'Oldest first',
+            'priority' => 'Priority (High to Low)',
+            'alphabetical' => 'Alphabetical (A-Z)',
+        ];
+
         $filters = $request->validate([
             'status' => ['nullable', Rule::in(['pending', 'completed'])],
             'priority' => ['nullable', Rule::in(Task::PRIORITIES)],
+            'search' => ['nullable', 'string', 'max:255'],
+            'sort' => ['nullable', 'string', Rule::in(array_keys($sortOptions))],
         ]);
+        $filters['sort'] = $filters['sort'] ?? 'newest';
 
-        $tasks = Task::query()
+        $query = Task::query()
             ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('is_completed', $status === 'completed'))
-            ->when($filters['priority'] ?? null, fn ($query, $priority) => $query->where('priority', $priority))
-            ->latest()->orderByDesc('id')
-            ->paginate(12)->withQueryString();
+            ->when($filters['priority'] ?? null, fn ($query, $priority) => $query->where('priority', $priority));
+
+        if (isset($filters['search']) && $filters['search'] !== '') {
+            $query->where(function (Builder $query) use ($filters): void {
+                $query->whereLike('title', '%'.$filters['search'].'%')
+                    ->orWhereLike('description', '%'.$filters['search'].'%');
+            });
+        }
+
+        match ($filters['sort']) {
+            'oldest' => $query->oldest()->orderBy('id'),
+            'priority' => $query->orderByRaw("CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END")
+                ->latest()->orderByDesc('id'),
+            'alphabetical' => $query->orderByRaw('LOWER(title)')->orderBy('id'),
+            default => $query->latest()->orderByDesc('id'),
+        };
+
+        $tasks = $query->paginate(12)->withQueryString();
 
         $total = Task::count();
         $completed = Task::where('is_completed', true)->count();
@@ -33,7 +59,7 @@ class TaskController extends Controller
             'percentage' => $total === 0 ? 0 : (int) round($completed / $total * 100),
         ];
 
-        return view('tasks.index', compact('tasks', 'stats', 'filters'));
+        return view('tasks.index', compact('tasks', 'stats', 'filters', 'sortOptions'));
     }
 
     public function create(): View

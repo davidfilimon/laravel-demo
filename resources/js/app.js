@@ -23,3 +23,7 @@ deleteDialog?.querySelector('[data-delete-confirm]').addEventListener('click', (
 deleteDialog?.addEventListener('close', () => {
     pendingDeleteForm = null;
 });
+
+document.querySelector('[data-task-sort]')?.addEventListener('change', (event) => {
+    event.target.form.requestSubmit();
+});
