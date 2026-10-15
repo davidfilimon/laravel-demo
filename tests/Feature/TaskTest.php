@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Task;
+use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\TestWith;
@@ -14,6 +15,8 @@ class TaskTest extends TestCase
 
     public function test_empty_dashboard_displays_zero_statistics_and_create_prompt(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $this->get(route('dashboard'))->assertOk()
             ->assertViewHas('stats', ['total' => 0, 'completed' => 0, 'pending' => 0, 'percentage' => 0])
             ->assertSee('Create your first task');
@@ -21,6 +24,8 @@ class TaskTest extends TestCase
 
     public function test_dashboard_displays_tasks_and_overall_statistics(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         Task::factory()->completed()->create(['title' => 'Finished task']);
         Task::factory()->count(2)->create();
 
@@ -30,6 +35,8 @@ class TaskTest extends TestCase
 
     public function test_dashboard_displays_full_completion(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         Task::factory()->completed()->count(2)->create();
 
         $this->get(route('dashboard'))->assertOk()
@@ -38,6 +45,8 @@ class TaskTest extends TestCase
 
     public function test_create_form_is_accessible(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $this->get(route('tasks.create'))->assertOk()->assertSee('Create task');
     }
 
@@ -46,6 +55,8 @@ class TaskTest extends TestCase
     #[TestWith(['high'])]
     public function test_valid_task_is_created_with_each_priority(string $priority): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $this->post(route('tasks.store'), [
             'title' => 'Prepare release', 'description' => 'Review changes', 'priority' => $priority,
             'is_completed' => '1', 'id' => 999,
@@ -61,6 +72,8 @@ class TaskTest extends TestCase
 
     public function test_optional_fields_default_to_pending_and_null_description(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $this->post(route('tasks.store'), ['title' => 'Simple task', 'priority' => 'medium'])
             ->assertRedirect(route('tasks.index'));
 
@@ -69,6 +82,8 @@ class TaskTest extends TestCase
 
     public function test_task_details_and_edit_form_display_saved_values(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $task = Task::factory()->create(['title' => 'My task', 'description' => "First step\nSecond step"]);
 
         $this->get(route('tasks.show', $task))->assertOk()->assertSee('My task')->assertSee("First step\nSecond step");
@@ -77,6 +92,8 @@ class TaskTest extends TestCase
 
     public function test_task_can_be_updated(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $task = Task::factory()->create();
 
         $this->put(route('tasks.update', $task), [
@@ -91,6 +108,8 @@ class TaskTest extends TestCase
 
     public function test_update_can_clear_description_and_completion(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $task = Task::factory()->completed()->create();
 
         $this->put(route('tasks.update', $task), ['title' => 'Reopened', 'description' => '', 'priority' => 'low'])
@@ -103,6 +122,8 @@ class TaskTest extends TestCase
     #[TestWith([true, false])]
     public function test_completion_control_changes_only_status_and_returns_to_filters(bool $before, bool $after): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $task = Task::factory()->create(['title' => 'Keep my title', 'priority' => 'high', 'is_completed' => $before]);
         $url = route('tasks.index', ['status' => 'pending', 'priority' => 'high']);
 
@@ -116,6 +137,8 @@ class TaskTest extends TestCase
     #[TestWith([['is_completed' => 'invalid']])]
     public function test_completion_rejects_missing_or_invalid_boolean(array $payload): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $task = Task::factory()->create();
 
         $this->patch(route('tasks.completion', $task), $payload)->assertSessionHasErrors('is_completed');
@@ -125,6 +148,8 @@ class TaskTest extends TestCase
 
     public function test_task_can_be_deleted_without_affecting_other_tasks(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $task = Task::factory()->create();
         $other = Task::factory()->create();
 
@@ -134,8 +159,62 @@ class TaskTest extends TestCase
         $this->assertModelExists($other);
     }
 
+    public function test_clear_completed_button_is_shown_even_if_filters_hide_completed_tasks(): void
+    {
+        $this->actingAs(User::factory()->admin()->create());
+
+        Task::factory()->completed()->create(['priority' => 'low']);
+
+        $this->get(route('tasks.index', ['status' => 'pending', 'priority' => 'high']))->assertOk()
+            ->assertSee('Clear Completed Tasks')
+            ->assertSee('action="'.route('tasks.clear-completed').'"', false)
+            ->assertSee('data-delete-form data-clear-completed', false);
+    }
+
+    #[TestWith([0])]
+    #[TestWith([2])]
+    public function test_clear_completed_button_is_hidden_without_completed_tasks(int $pendingCount): void
+    {
+        $this->actingAs(User::factory()->admin()->create());
+
+        Task::factory()->count($pendingCount)->create();
+
+        $this->get(route('dashboard'))->assertOk()->assertDontSee('Clear Completed Tasks');
+    }
+
+    public function test_clear_completed_deletes_only_completed_tasks_across_priorities(): void
+    {
+        $this->actingAs(User::factory()->admin()->create());
+
+        Task::factory()->completed()->create(['priority' => 'low']);
+        Task::factory()->completed()->create(['priority' => 'high']);
+        $pending = Task::factory()->create(['priority' => 'high']);
+
+        $this->delete(route('tasks.clear-completed'))->assertRedirect(route('tasks.index'))
+            ->assertSessionHas('success', 'Completed tasks cleared.');
+
+        $this->assertDatabaseMissing('tasks', ['is_completed' => true]);
+        $this->assertModelExists($pending);
+        $this->assertDatabaseCount('tasks', 1);
+        $this->get(route('tasks.index'))->assertOk()->assertDontSee('Clear Completed Tasks');
+    }
+
+    public function test_clear_completed_is_safe_without_completed_tasks(): void
+    {
+        $this->actingAs(User::factory()->admin()->create());
+
+        $pending = Task::factory()->create();
+
+        $this->delete(route('tasks.clear-completed'))->assertRedirect(route('tasks.index'));
+
+        $this->assertModelExists($pending);
+        $this->assertDatabaseCount('tasks', 1);
+    }
+
     public function test_required_fields_are_validated_and_no_task_is_created(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $this->post(route('tasks.store'), [])->assertSessionHasErrors([
             'title' => 'The title field is required.', 'priority' => 'The priority field is required.',
         ]);
@@ -161,6 +240,8 @@ class TaskTest extends TestCase
     #[DataProvider('invalidTaskFields')]
     public function test_invalid_fields_prevent_creation_and_preserve_form_input(string $field, mixed $value, string $message): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $payload = ['title' => 'Valid title', 'description' => 'Valid description', 'priority' => 'medium', 'is_completed' => false];
         $payload[$field] = $value;
 
@@ -173,6 +254,8 @@ class TaskTest extends TestCase
     #[DataProvider('invalidTaskFields')]
     public function test_invalid_fields_prevent_updates(string $field, mixed $value, string $message): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $task = Task::factory()->create(['title' => 'Original title', 'description' => 'Original description', 'priority' => 'low']);
         $payload = ['title' => 'Changed title', 'description' => 'Changed description', 'priority' => 'high', 'is_completed' => true];
         $payload[$field] = $value;
@@ -184,6 +267,8 @@ class TaskTest extends TestCase
 
     public function test_maximum_length_fields_are_accepted(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $this->post(route('tasks.store'), ['title' => str_repeat('a', 255), 'description' => str_repeat('b', 10000), 'priority' => 'low'])
             ->assertRedirect(route('tasks.index'))->assertSessionHasNoErrors();
 
@@ -197,6 +282,8 @@ class TaskTest extends TestCase
     #[TestWith(['', 'medium', []])]
     public function test_filters_return_matching_tasks_without_changing_statistics(string $status, string $priority, array $titles): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         Task::factory()->create(['title' => 'Pending high', 'priority' => 'high']);
         Task::factory()->completed()->create(['title' => 'Completed high', 'priority' => 'high']);
         Task::factory()->create(['title' => 'Pending low', 'priority' => 'low']);
@@ -213,11 +300,15 @@ class TaskTest extends TestCase
     #[TestWith(['priority', ['high']])]
     public function test_invalid_filter_values_are_rejected(string $field, mixed $value): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $this->get(route('tasks.index', [$field => $value]))->assertSessionHasErrors($field);
     }
 
     public function test_pagination_keeps_filters_and_orders_newest_first(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         Task::factory()->count(13)->create(['priority' => 'high']);
         $newest = Task::factory()->create(['title' => 'Newest task', 'priority' => 'high']);
         Task::factory()->create(['priority' => 'low']);
@@ -236,6 +327,8 @@ class TaskTest extends TestCase
 
     public function test_task_content_is_escaped_on_dashboard_details_and_edit_form(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $task = Task::factory()->create(['title' => '<script>alert(1)</script>', 'description' => '<img src=x onerror=alert(2)>']);
 
         foreach (['tasks.index', 'tasks.show', 'tasks.edit'] as $route) {
@@ -247,6 +340,8 @@ class TaskTest extends TestCase
 
     public function test_unknown_tasks_return_not_found_for_all_record_operations(): void
     {
+        $this->actingAs(User::factory()->admin()->create());
+
         $this->get(route('tasks.show', 999))->assertNotFound();
         $this->get(route('tasks.edit', 999))->assertNotFound();
         $this->put(route('tasks.update', 999), ['title' => 'Valid', 'priority' => 'low'])->assertNotFound();

@@ -5,6 +5,7 @@
         <a href="{{ route('tasks.index') }}" class="mb-7 inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-violet-300"><x-icon name="back" class="size-4"/> Back to dashboard</a>
         <article class="rounded-2xl border border-line bg-panel p-6 sm:p-9">
             <div class="mb-6 flex flex-wrap items-center gap-3"><x-task-badge :priority="$task->priority"/><span @class(['inline-flex items-center gap-1.5 text-xs', 'text-emerald-300' => $task->is_completed, 'text-zinc-400' => !$task->is_completed])><x-icon :name="$task->is_completed ? 'circle-check' : 'clock'" class="size-4"/>{{ $task->is_completed ? 'Completed' : 'Pending' }}</span></div>
+            <p class="mb-4 text-sm text-zinc-400">Assigned to: {{ $task->user?->name ?? 'Unassigned' }}</p>
             <h1 class="wrap-anywhere text-3xl font-semibold tracking-tight">{{ $task->title }}</h1>
             <div class="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs text-zinc-500"><span>Created <time datetime="{{ $task->created_at->toIso8601String() }}">{{ $task->created_at->format('M j, Y · g:i a') }}</time></span><span>Updated <time datetime="{{ $task->updated_at->toIso8601String() }}">{{ $task->updated_at->format('M j, Y · g:i a') }}</time></span></div>
             <div class="mt-8 border-t border-line pt-7"><h2 class="mb-3 text-xs font-semibold tracking-wider text-zinc-500">DESCRIPTION</h2><p class="whitespace-pre-wrap wrap-anywhere text-sm leading-7 text-zinc-300">{{ $task->description ?: 'No description added. You can add details by editing this task.' }}</p></div>

@@ -30,6 +30,10 @@
                 <p class="px-3 pt-9 pb-4 text-[10px] font-semibold tracking-[0.18em] text-zinc-500">YOUR FOCUS</p>
                 <a href="{{ route('tasks.index', ['status' => 'pending', 'priority' => 'high']) }}" class="nav-link"><x-icon name="flag" class="text-rose-300"/> High priority</a>
                 <a href="{{ route('tasks.create') }}" class="nav-link"><x-icon name="plus"/> Create a task</a>
+                @can('manage-users')
+                    <a href="{{ route('users.index') }}" class="nav-link"><x-icon name="layers"/> Manage users</a>
+                @endcan
+                <form method="POST" action="{{ route('logout') }}" class="mt-5">@csrf<button type="submit" class="nav-link w-full"><x-icon name="back"/> Sign out</button></form>
             </nav>
             <div class="hidden px-5 pb-6 lg:block">
                 <div class="rounded-xl border border-violet-400/15 bg-linear-to-br from-violet-500/10 to-transparent p-4">
@@ -39,7 +43,7 @@
                 </div>
                 <div class="mt-6 flex items-center gap-3 border-t border-line pt-5">
                     <span class="flex size-9 items-center justify-center rounded-lg border border-line bg-white/5 text-xs font-medium">OW</span>
-                    <div><p class="text-xs font-medium">Your workspace</p><p class="mt-1 flex items-center gap-1.5 text-[10px] text-zinc-500"><span class="size-1.5 rounded-full bg-emerald-400"></span> Personal task manager</p></div>
+                    <div><p class="text-xs font-medium">{{ auth()->user()->name }}</p><p class="mt-1 flex items-center gap-1.5 text-[10px] text-zinc-500"><span class="size-1.5 rounded-full bg-emerald-400"></span> {{ auth()->user()->is_admin ? 'Administrator' : 'Personal tasks' }}</p></div>
                 </div>
             </div>
         </aside>
