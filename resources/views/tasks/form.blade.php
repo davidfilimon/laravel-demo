@@ -11,6 +11,16 @@
             @if($task->exists) @method('PUT') @endif
             @if($errors->any())<div role="alert" class="mb-6 rounded-lg border border-rose-400/20 bg-rose-400/5 p-4 text-sm text-rose-300">Please check the highlighted fields and try again.</div>@endif
             <div class="flex flex-col gap-6">
+                @if(auth()->user()->is_admin)
+                    <div>
+                        <label for="user_id" class="field-label">Assigned to <span class="text-violet-300">*</span></label>
+                        <select id="user_id" name="user_id" class="field" required @error('user_id') aria-invalid="true" aria-describedby="user-error" @enderror>
+                            @if($task->exists && !$task->user_id)<option value="">Unassigned — choose a user</option>@endif
+                            @foreach($users as $user)<option value="{{ $user->id }}" @selected((string) old('user_id', $task->exists ? $task->user_id : auth()->id()) === (string) $user->id)>{{ $user->name }}</option>@endforeach
+                        </select>
+                        @error('user_id')<p id="user-error" class="field-error">{{ $message }}</p>@enderror
+                    </div>
+                @endif
                 <div><label for="title" class="field-label">Task title <span class="text-violet-300">*</span></label><input type="text" name="title" id="title" value="{{ old('title', $task->title) }}" class="field" placeholder="What would you like to get done?" required maxlength="255" autofocus @error('title') aria-invalid="true" aria-describedby="title-error" @enderror>@error('title')<p id="title-error" class="field-error">{{ $message }}</p>@enderror</div>
                 <div><label for="description" class="field-label">Description <span class="ml-1 font-normal text-zinc-400">(optional)</span></label><textarea name="description" id="description" rows="5" maxlength="10000" class="field resize-y" placeholder="Add a little context, a few steps, or anything you’ll want to remember." @error('description') aria-invalid="true" aria-describedby="description-error" @enderror>{{ old('description', $task->description) }}</textarea>@error('description')<p id="description-error" class="field-error">{{ $message }}</p>@enderror</div>
                 <div><label for="priority" class="field-label">Priority <span class="text-violet-300">*</span></label><select name="priority" id="priority" class="field" required @error('priority') aria-invalid="true" aria-describedby="priority-error" @enderror>@foreach(\App\Models\Task::PRIORITIES as $priority)<option value="{{ $priority }}" @selected(old('priority', $task->priority ?? 'medium') === $priority)>{{ ucfirst($priority) }} priority</option>@endforeach</select>@error('priority')<p id="priority-error" class="field-error">{{ $message }}</p>@enderror<p class="mt-2 text-xs text-zinc-400">Give your most important work a little extra attention.</p></div>

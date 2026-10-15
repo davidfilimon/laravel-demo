@@ -12,6 +12,13 @@ document.querySelectorAll('[data-delete-form]').forEach((form) => {
     form.addEventListener('submit', (event) => {
         event.preventDefault();
         pendingDeleteForm = form;
+        const clearingCompleted = form.hasAttribute('data-clear-completed');
+        deleteDialog.querySelector('#delete-title').textContent = clearingCompleted ? 'Clear completed tasks?' : 'Delete this task?';
+        deleteDialog.querySelector('#delete-description').textContent = clearingCompleted
+            ? 'This will permanently remove all completed tasks. Pending tasks will be kept. You can’t undo this action.'
+            : 'This will permanently remove the task. You can’t undo this action.';
+        deleteDialog.querySelector('[data-delete-cancel]').textContent = clearingCompleted ? 'Keep tasks' : 'Keep task';
+        deleteDialog.querySelector('[data-delete-confirm]').textContent = clearingCompleted ? 'Clear completed tasks' : 'Delete task';
         deleteDialog.showModal();
     });
 });

@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\SaveTaskRequest;
 use App\Models\Task;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -26,12 +28,15 @@ class TaskController extends Controller
             'priority' => ['nullable', Rule::in(Task::PRIORITIES)],
             'search' => ['nullable', 'string', 'max:255'],
             'sort' => ['nullable', 'string', Rule::in(array_keys($sortOptions))],
+            'user_id' => $request->user()->is_admin ? ['nullable', 'integer', Rule::exists('users', 'id')] : ['prohibited'],
         ]);
         $filters['sort'] = $filters['sort'] ?? 'newest';
 
-        $query = Task::query()
-            ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('is_completed', $status === 'completed'))
-            ->when($filters['priority'] ?? null, fn ($query, $priority) => $query->where('priority', $priority));
+        $visibleTasks = Task::visibleTo($request->user());
+        $query = (clone $visibleTasks)->with('user:id,name')
+            ->when($filters['status'] ?? null, fn (Builder $query, string $status): Builder => $query->where('is_completed', $status === 'completed'))
+            ->when($filters['priority'] ?? null, fn (Builder $query, string $priority): Builder => $query->where('priority', $priority))
+            ->when($request->user()->is_admin && ($filters['user_id'] ?? null), fn (Builder $query): Builder => $query->where('user_id', $filters['user_id']));
 
         if (isset($filters['search']) && $filters['search'] !== '') {
             $query->where(function (Builder $query) use ($filters): void {
@@ -50,8 +55,8 @@ class TaskController extends Controller
 
         $tasks = $query->paginate(12)->withQueryString();
 
-        $total = Task::count();
-        $completed = Task::where('is_completed', true)->count();
+        $total = (clone $visibleTasks)->count();
+        $completed = (clone $visibleTasks)->where('is_completed', true)->count();
         $stats = [
             'total' => $total,
             'completed' => $completed,
@@ -59,48 +64,72 @@ class TaskController extends Controller
             'percentage' => $total === 0 ? 0 : (int) round($completed / $total * 100),
         ];
 
-        return view('tasks.index', compact('tasks', 'stats', 'filters', 'sortOptions'));
+        return view('tasks.index', compact('tasks', 'stats', 'filters', 'sortOptions') + ['users' => $request->user()->is_admin ? User::orderBy('name')->get(['id', 'name']) : collect()]);
     }
 
-    public function create(): View
+    public function create(Request $request): View
     {
-        return view('tasks.form', ['task' => new Task]);
+        return view('tasks.form', ['task' => new Task, 'users' => $request->user()->is_admin ? User::orderBy('name')->get(['id', 'name']) : collect()]);
     }
 
     public function store(SaveTaskRequest $request): RedirectResponse
     {
-        Task::create([...$request->validated(), 'is_completed' => $request->boolean('is_completed')]);
+        Task::create([
+            ...$request->validated(),
+            'is_completed' => $request->boolean('is_completed'),
+            'user_id' => $request->user()->is_admin
+                ? ($request->validated('user_id') ?? $request->user()->id)
+                : $request->user()->id,
+        ]);
 
         return to_route('tasks.index')->with('success', 'Task created. Let’s make it happen.');
     }
 
     public function show(Task $task): View
     {
+        Gate::authorize('view', $task);
+
         return view('tasks.show', compact('task'));
     }
 
-    public function edit(Task $task): View
+    public function edit(Request $request, Task $task): View
     {
-        return view('tasks.form', compact('task'));
+        Gate::authorize('update', $task);
+
+        return view('tasks.form', compact('task') + ['users' => $request->user()->is_admin ? User::orderBy('name')->get(['id', 'name']) : collect()]);
     }
 
     public function update(SaveTaskRequest $request, Task $task): RedirectResponse
     {
-        $task->update([...$request->validated(), 'is_completed' => $request->boolean('is_completed')]);
+        $data = $request->user()->is_admin
+            ? $request->validated()
+            : $request->safe()->except(['user_id']);
+        $task->update([...$data, 'is_completed' => $request->boolean('is_completed')]);
 
         return to_route('tasks.index')->with('success', 'Task updated. You’re all set.');
     }
 
     public function completion(Request $request, Task $task): RedirectResponse
     {
+        Gate::authorize('update', $task);
+
         $data = $request->validate(['is_completed' => ['required', 'boolean']]);
         $task->update($data);
 
         return back()->with('success', $task->is_completed ? 'Task completed. Nice work!' : 'Task moved back to pending.');
     }
 
+    public function clearCompleted(Request $request): RedirectResponse
+    {
+        Task::visibleTo($request->user())->where('is_completed', true)->delete();
+
+        return to_route('tasks.index')->with('success', 'Completed tasks cleared.');
+    }
+
     public function destroy(Task $task): RedirectResponse
     {
+        Gate::authorize('delete', $task);
+
         $task->delete();
 
         return to_route('tasks.index')->with('success', 'Task deleted. Space for what matters.');

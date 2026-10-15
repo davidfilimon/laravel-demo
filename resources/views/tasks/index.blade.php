@@ -2,8 +2,17 @@
 @section('title', 'Dashboard')
 @section('content')
     <div class="mb-7 flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-center">
-        <div><p class="mb-2 text-xs font-medium tracking-wide text-violet-300">A CLEAR SPACE. A FOCUSED MIND.</p><h1 class="text-3xl font-semibold tracking-tight sm:text-4xl">Your task dashboard<span class="text-violet-400">.</span></h1><p class="mt-3 text-sm text-zinc-400">Keep track of what matters, and make a little progress every day.</p></div>
-        <a href="{{ route('tasks.create') }}" class="button-primary w-full shrink-0 sm:w-auto"><x-icon name="plus" class="size-4"/> New task</a>
+        <div><p class="mb-2 text-xs font-medium tracking-wide text-violet-300">A CLEAR SPACE. A FOCUSED MIND.</p><h1 class="text-3xl font-semibold tracking-tight sm:text-4xl">Your task dashboard<span class="text-violet-400">.</span></h1><p class="mt-3 text-sm text-zinc-400">{{ auth()->user()->is_admin ? 'Manage team tasks and assign work to each user.' : 'Your tasks, your priorities. Make a little progress every day.' }}</p></div>
+        <div class="flex w-full shrink-0 flex-wrap items-center gap-3 sm:w-auto">
+            @if($stats['completed'] > 0)
+                <form action="{{ route('tasks.clear-completed') }}" method="POST" data-delete-form data-clear-completed>
+                    @csrf
+                    @method('DELETE')
+                    <button type="submit" class="button-secondary text-rose-300 hover:border-rose-400/40"><x-icon name="trash" class="size-4"/> Clear Completed Tasks</button>
+                </form>
+            @endif
+            <a href="{{ route('tasks.create') }}" class="button-primary"><x-icon name="plus" class="size-4"/> New task</a>
+        </div>
     </div>
 
     <section class="hero-panel relative mb-5 overflow-hidden rounded-2xl border border-violet-400/20 p-5 sm:p-7" aria-label="Workspace progress">
@@ -34,8 +43,11 @@
                 <div class="min-w-0 sm:min-w-32 sm:flex-1 sm:max-w-44"><label for="status" class="mb-1.5 block text-[11px] text-zinc-400">Status</label><select id="status" name="status" class="field text-xs"><option value="">All statuses</option><option value="pending" @selected(($filters['status'] ?? '') === 'pending')>Pending</option><option value="completed" @selected(($filters['status'] ?? '') === 'completed')>Completed</option></select></div>
                 <div class="min-w-0 sm:min-w-32 sm:flex-1 sm:max-w-44"><label for="priority" class="mb-1.5 block text-[11px] text-zinc-400">Priority</label><select id="priority" name="priority" class="field text-xs"><option value="">All priorities</option>@foreach(\App\Models\Task::PRIORITIES as $priority)<option value="{{ $priority }}" @selected(($filters['priority'] ?? '') === $priority)>{{ ucfirst($priority) }} priority</option>@endforeach</select></div>
                 <div class="col-span-2 min-w-0 sm:min-w-48 sm:flex-1 sm:max-w-56"><label for="sort" class="mb-1.5 block text-[11px] text-zinc-400">Sort by</label><select id="sort" name="sort" class="field text-xs" data-task-sort>@foreach($sortOptions as $value => $label)<option value="{{ $value }}" @selected($filters['sort'] === $value)>{{ $label }}</option>@endforeach</select></div>
+                @if(auth()->user()->is_admin)
+                    <div class="min-w-32 flex-1 sm:max-w-44"><label for="user_id" class="mb-1.5 block text-[11px] text-zinc-400">Assigned to</label><select id="user_id" name="user_id" class="field text-xs"><option value="">All users</option>@foreach($users as $user)<option value="{{ $user->id }}" @selected((string) ($filters['user_id'] ?? '') === (string) $user->id)>{{ $user->name }}</option>@endforeach</select></div>
+                @endif
                 <button type="submit" class="button-secondary col-span-2 sm:w-auto">Apply filters</button>
-                @if(!empty($filters['status']) || !empty($filters['priority']) || (isset($filters['search']) && $filters['search'] !== '') || $filters['sort'] !== 'newest')<a href="{{ route('tasks.index') }}" class="col-span-2 rounded-lg px-2 py-2.5 text-center text-sm text-violet-300 hover:text-violet-200">Clear filters</a>@endif
+                @if(!empty($filters['status']) || !empty($filters['priority']) || !empty($filters['user_id']) || (isset($filters['search']) && $filters['search'] !== '') || $filters['sort'] !== 'newest')<a href="{{ route('tasks.index') }}" class="col-span-2 rounded-lg px-2 py-2.5 text-center text-sm text-violet-300 hover:text-violet-200">Clear filters</a>@endif
             </form>
             @if($errors->any())<div role="alert" class="border-b border-line p-4 text-sm text-rose-300">{{ $errors->first() }}</div>@endif
             <div class="hidden grid-cols-[minmax(0,1fr)_140px_120px_96px] gap-6 border-b border-line px-6 py-3 text-[10px] font-semibold tracking-wider text-zinc-400 xl:grid"><span>TASK</span><span>PRIORITY</span><span>STATUS</span><span class="text-right">ACTIONS</span></div>
@@ -44,7 +56,7 @@
                     <article @class(['task-card grid gap-4 p-4 sm:p-5 xl:grid-cols-[minmax(0,1fr)_140px_120px_96px] xl:items-center xl:gap-6 xl:px-6', 'task-card-completed' => $task->is_completed])>
                         <div class="flex min-w-0 items-start gap-4">
                             <form action="{{ route('tasks.completion', $task) }}" method="POST" class="shrink-0">@csrf @method('PATCH')<input type="hidden" name="is_completed" value="{{ $task->is_completed ? 0 : 1 }}"><button type="submit" @class(['task-toggle', 'task-toggle-completed' => $task->is_completed, 'task-toggle-pending' => !$task->is_completed]) aria-pressed="{{ $task->is_completed ? 'true' : 'false' }}" aria-label="{{ $task->is_completed ? 'Mark pending:' : 'Complete:' }} {{ $task->title }}" title="{{ $task->is_completed ? 'Mark as pending' : 'Mark complete' }}">@if($task->is_completed)<x-icon name="check" class="size-5"/>@endif</button></form>
-                            <div class="min-w-0"><a href="{{ route('tasks.show', $task) }}" @class(['task-title block rounded-sm wrap-anywhere text-sm font-medium leading-6 transition-colors hover:text-violet-300', 'text-zinc-400 line-through decoration-zinc-600' => $task->is_completed])>{{ $task->title }}</a><p class="mt-1.5 line-clamp-1 wrap-anywhere text-xs text-zinc-400">{{ $task->description ?: 'No description added.' }}</p></div>
+                            <div class="min-w-0"><a href="{{ route('tasks.show', $task) }}" @class(['task-title block rounded-sm wrap-anywhere text-sm font-medium leading-6 transition-colors hover:text-violet-300', 'text-zinc-400 line-through decoration-zinc-600' => $task->is_completed])>{{ $task->title }}</a><p class="mt-1.5 line-clamp-1 wrap-anywhere text-xs text-zinc-400">{{ $task->description ?: 'No description added.' }}</p>@if(auth()->user()->is_admin)<p class="mt-2 text-[11px] text-violet-300">Assigned to: {{ $task->user?->name ?? 'Unassigned' }}</p>@endif</div>
                         </div>
                         <div class="flex flex-wrap items-center gap-2 border-t border-line/60 pt-3 sm:gap-3 xl:contents"><div><x-task-badge :priority="$task->priority"/></div><span @class(['task-status', 'bg-emerald-400/10 text-emerald-200' => $task->is_completed, 'bg-white/5 text-zinc-300' => !$task->is_completed])><span @class(['size-1.5 rounded-full', 'bg-emerald-400' => $task->is_completed, 'bg-zinc-500' => !$task->is_completed])></span>{{ $task->is_completed ? 'Completed' : 'Pending' }}</span><div class="ml-auto flex justify-end gap-1"><a href="{{ route('tasks.edit', $task) }}" class="icon-button" aria-label="Edit {{ $task->title }}" title="Edit task"><x-icon name="edit" class="size-4"/></a><form action="{{ route('tasks.destroy', $task) }}" method="POST" data-delete-form>@csrf @method('DELETE')<button type="submit" class="icon-button hover:text-rose-300" aria-label="Delete {{ $task->title }}" title="Delete task"><x-icon name="trash" class="size-4"/></button></form></div></div>
                     </article>
